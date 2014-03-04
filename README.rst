@@ -27,11 +27,11 @@ Detailed documentation is in the "docs" directory and [TODO]
 Screenshots
 -----------
 
-![Alt text](mr_reports/docs/screenshots/sample_report.png "Sample Report")
+![screenshot](mr_reports/docs/screenshots/sample_report.png?raw=true "Sample Report")
 
-![Alt text](mr_reports/docs/screenshots/editing_reports.png "Edit reports in the Admin console")
+![screenshot](mr_reports/docs/screenshots/editing_reports.png?raw=true "Edit reports in the Admin console")
 
-![Alt text](mr_reports/docs/screenshots/editing_a_report.png "Editing a report")
+![screenshot](mr_reports/docs/screenshots/editing_a_report.png?raw=true "Editing a report")
 
 Quick start
 -----------
