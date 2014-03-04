@@ -27,6 +27,8 @@ Detailed documentation is in the "docs" directory and [TODO]
 Screenshots
 -----------
 
+.. image:: mr_reports/docs/screenshots/sample_report.png?raw=true
+
 ![screenshot](mr_reports/docs/screenshots/sample_report.png?raw=true "Sample Report")
 
 ![screenshot](mr_reports/docs/screenshots/editing_reports.png?raw=true "Edit reports in the Admin console")
