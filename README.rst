@@ -47,8 +47,7 @@ Quick start
 
 #. Run `python manage.py syncdb` to create the mr_reports models.
 
-#. Start the development server and visit http://127.0.0.1:8000/reports/
-to see a listing of reports.  Visit the admin panel to start writing reports.
+#. Start the development server and visit http://127.0.0.1:8000/reports/ to see a listing of reports.  Visit the admin panel to start writing reports.
 
 #. Install wkhtmltopdf to enable PDF export of reports.
 
