@@ -1,0 +1,6 @@
+include LICENSE
+include README.rst
+recursive-include mr_reports/static *
+recursive-include mr_reports/templates *
+recursive-include mr_reports/docs *
+
