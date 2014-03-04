@@ -29,11 +29,9 @@ Screenshots
 
 .. image:: mr_reports/docs/screenshots/sample_report.png?raw=true
 
-![screenshot](mr_reports/docs/screenshots/sample_report.png?raw=true "Sample Report")
+.. image:: mr_reports/docs/screenshots/editing_reports.png?raw=true
 
-![screenshot](mr_reports/docs/screenshots/editing_reports.png?raw=true "Edit reports in the Admin console")
-
-![screenshot](mr_reports/docs/screenshots/editing_a_report.png?raw=true "Editing a report")
+.. image:: mr_reports/docs/screenshots/editing_a_report.png?raw=true
 
 Quick start
 -----------
