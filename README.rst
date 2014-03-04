@@ -27,9 +27,15 @@ Detailed documentation is in the "docs" directory and [TODO]
 Screenshots
 -----------
 
+A sample report:
+
 .. image:: mr_reports/docs/screenshots/sample_report.png?raw=true
 
+Edit and create reports through Django's admin console:
+
 .. image:: mr_reports/docs/screenshots/editing_reports.png?raw=true
+
+Editing a sample report:
 
 .. image:: mr_reports/docs/screenshots/editing_a_report.png?raw=true
 
