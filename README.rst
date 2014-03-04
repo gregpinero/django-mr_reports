@@ -24,6 +24,14 @@ as is, there's no need to muck about with layout, name columns, etc.
 
 Detailed documentation is in the "docs" directory and [TODO]
 
+Screenshots
+-----------
+
+![Alt text](mr_reports/docs/screenshots/sample_report.png "Sample Report")
+
+![Alt text](mr_reports/docs/screenshots/editing_reports.png "Edit reports in the Admin console")
+
+![Alt text](mr_reports/docs/screenshots/editing_a_report.png "Editing a report")
 
 Quick start
 -----------
