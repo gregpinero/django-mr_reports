@@ -1,5 +1,3 @@
-
-=====
 Customizing a Report with CSS
 ===== 
 
@@ -10,17 +8,16 @@ A style record should contain ordinary CSS that manipulates for styles the exist
 on the report page.
 
 
-=====
 Examples
-===== 
+------
 
 Change the background color of the report header and put in a logo::
-```
+
     div.jumbotron {
         background-color: #EBF8FE;
         background-image: url('/static/images/gray_janelia_logo.png');
         background-repeat: no-repeat;
         background-position: top right;
     }
-```
+
 
