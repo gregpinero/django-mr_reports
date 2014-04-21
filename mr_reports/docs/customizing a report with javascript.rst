@@ -1,6 +1,5 @@
-
-# Customizing a Report with Javascript
-
+Customizing a Report with Javascript
+=============
 
 The "Js post processing" field on the report screen is useful for many customizations
 such as adding charts, grouping data, or formatting data.
@@ -9,11 +8,11 @@ such as adding charts, grouping data, or formatting data.
 your server.  This page has many popular JS libraries available: http://cdnjs.com/ )
 
 
-## Examples
+Examples
+--------------
 
+Create bar chart (using High Charts) using first column for categories and second column for values::
 
-### Create bar chart (using High Charts) using first column for categories and second column for values::
-```
     <script src="http://code.highcharts.com/highcharts.js"></script>
     <script>
     $(function () { 
@@ -45,11 +44,11 @@ your server.  This page has many popular JS libraries available: http://cdnjs.co
         });
     });
     </script>
-```
 
 
-### Format a table column to use commas in numbers::
-```
+
+Format a table column to use commas in numbers::
+
     <script src="//cdnjs.cloudflare.com/ajax/libs/numeral.js/1.4.5/numeral.min.js"></script>
     <script>
     // Finding the 3rd column of the first data table and changing the value for a number with comma's
@@ -59,12 +58,11 @@ your server.  This page has many popular JS libraries available: http://cdnjs.co
         $(val).html( numeral(val.innerHTML).format('0,0'));
     });
     </script>
-```
 
 
 
-### Allow toggling of the 4th and 5th columns to show or hide::
-```
+Allow toggling of the 4th and 5th columns to show or hide::
+
     <script>
     var hidden_state = false;
     $('div.jumbotron .container').append('<a id="show_details">Show Details</a>');
@@ -86,5 +84,4 @@ your server.  This page has many popular JS libraries available: http://cdnjs.co
 
     $('#show_details').click(function(){toggle_details();});
     </script>
-```
 
