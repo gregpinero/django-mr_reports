@@ -68,12 +68,9 @@ Quick start
 #. Install wkhtmltopdf to enable PDF export of reports.
 
 #. To enable scheduled reports/subscriptions:
-
-##. Make sure PDF export is set up and working
-
-##. Make sure email is set up for your Django project
-
-##. Set up a cron job to run this command periodically: python manage.py send_scheduled_reports
+ #. Make sure PDF export is set up and working
+ #. Make sure email is set up for your Django project
+ #. Set up a cron job to run this command periodically: python manage.py send_scheduled_reports
 
 
 Updating settings.py
