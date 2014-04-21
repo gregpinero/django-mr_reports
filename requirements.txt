@@ -1,8 +1,14 @@
 Django==1.6.1
 M2Crypto==0.21.1
+MySQL-python==1.2.5
 SQLAlchemy==0.9.1
 South==0.8.4
+argparse==1.1
+dateutils==0.6.6
 django-auth-ldap==1.1.8
 oursql==0.9.3.1
+python-dateutil==2.2
 python-ldap==2.4.14
+pytz==2014.2
+six==1.6.1
 wsgiref==0.1.2

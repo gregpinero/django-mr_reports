@@ -2,8 +2,10 @@
 Mr. Reports
 =====
 
-Mr. Reports is a Django app to provide simple, opinionated* reports with attractive
-styling (using Bootstrap), and all the must-have report features like Excel and PDF downloads.
+Mr. Reports is a Django app to provide simple, opinionated* report generation 
+(now called business intelligence) with attractive styling (using Bootstrap), 
+and all the must-have report features like Excel and PDF downloads, and 
+scheduled emails.
 
 Reports, data connections, data sets (queries), and report parameters are all 
 managed through the Django admin.
@@ -59,11 +61,25 @@ Quick start
 
 #. Install wkhtmltopdf to enable PDF export of reports.
 
+#. To enable scheduled reports/subscriptions:
+
+##. Make sure PDF export is set up and working
+
+##. Make sure email is set up for your Django project
+
+##. Set up a cron job to run this command periodically: python manage.py send_scheduled_reports
+
 
 Updating settings.py
 -----------
 
 Make sure your SECRET_KEY is set. This is used to attempt to obscure database connection passwords.
+
+It's best to make sure a timezone is set to make scheduled reports work correctly. Example:
+TIME_ZONE = 'America/New_York'
+USE_TZ = True
+
+
 
 Other optional settings::
 
@@ -73,8 +89,13 @@ Other optional settings::
     #Use for PDF generation of reports
     MR_REPORTS_WKHTMLTOPDF_PATH = '/path/to/wkhtmltopdf'
     MR_REPORTS_WKHTMLTOPDF_OPTIONS = [
-        #'--print-media-type', 
+        '--javascript-delay', '1000',
     ]
+In order for PDF export to work make sure to specify BASE_PATH in settings so wkhtmltopdf knows
+how to find the server.  The server must be running at this URI in order for PDF export to work.
+Example:
+
+    BASE_PATH = 'http://10.101.10.172:8002/'    
 
 Experimental settings::
 

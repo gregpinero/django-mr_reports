@@ -1,4 +1,6 @@
 
+import datetime
+
 from django.contrib import admin
 from django.contrib import messages
 from django.http import HttpResponse
@@ -6,9 +8,10 @@ from django.utils.safestring import mark_safe
 from django.forms import ModelForm, PasswordInput
 from django.conf import settings
 
+import utils
 from encrypted_fields import EncryptedCharField
 from models import DataConnection, Parameter, DataSet, Style, Report, ReportDataSet, \
-    DataSetParameter
+    DataSetParameter, Subscription
 
 ### Hack to insert icons #######################################################
 # I want to show icons for each model in the admin, but I can't alter the admin 
@@ -17,7 +20,8 @@ from models import DataConnection, Parameter, DataSet, Style, Report, ReportData
 # response and marks them as safe to display HTML right before it's rendered.
 def insert_icons(response):
     image_by_model = {'DataConnection':'server.png', 'Parameter':'quiz.png', 
-        'DataSet':'view_text.png', 'Style':'kcoloredit.png', 'Report':'tablet.png'}
+        'DataSet':'view_text.png', 'Style':'kcoloredit.png', 'Report':'tablet.png',
+        'Subscription':'date.png'}
     my_app_context = [d for d in response.context_data['app_list'] if d.get('app_label','') == u'mr_reports']
     if my_app_context:
         for m in my_app_context[0]['models']:
@@ -87,10 +91,49 @@ class ReportAdmin(BaseAdmin):
     exclude=('datasets',)
     inlines = [ReportDataSetInline,]
 
+    def duplicate(self, request, queryset):
+        """An easy way to copy reports instead of starting from scratch."""
+        #make duplicate of each object in queryset
+        for obj in queryset:
+            old_datasets = list(obj.reportdataset_set.all())
+            obj.id = None
+            obj.title += ' (copy)'
+            obj.save()
+
+            new_datasets = [
+                ReportDataSet(report = obj, dataset = d.dataset, order_on_report = d.order_on_report)
+                for d in old_datasets]
+            ReportDataSet.objects.bulk_create(new_datasets)
+
+    duplicate.short_description = "Duplicate Selected Reports"
+    actions = [duplicate]
+
+class SubscriptionAdmin(admin.ModelAdmin):
+    list_display = ('report', 'send_to', 'time', 'start_date', 'frequency', 'email_subject', 'last_scheduled_run','last_run_succeeded')
+
+    def run_now(self, request, queryset):
+        for obj in queryset:
+            utils.execute_subscription(obj.id, force_run=True)
+    run_now.short_description = "Send selected subscriptions now"
+
+    def duplicate(self, request, queryset):
+        #make duplicate of each object in queryset
+        for obj in queryset:
+            obj.id = None
+            #reset time and status fields
+            obj.time = datetime.datetime.today()
+            obj.start_date = datetime.date.today()
+            obj.last_run = None
+            obj.last_run_succeeded = False
+            obj.save()
+    duplicate.short_description = "Duplicate selected subscriptions"
+
+    actions = [run_now, duplicate]
 
 admin.site.register(DataConnection,DataConnectionAdmin)
 admin.site.register(Parameter,ParameterAdmin)
 admin.site.register(DataSet,DataSetAdmin)
 admin.site.register(Style,StyleAdmin)
 admin.site.register(Report,ReportAdmin)
+admin.site.register(Subscription,SubscriptionAdmin)
 

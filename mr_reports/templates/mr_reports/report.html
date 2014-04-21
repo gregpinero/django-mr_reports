@@ -13,10 +13,10 @@
     {% comment %} Building absolute URI's to static files so that wkhtmltopdf can render reports from HTML {% endcomment %}
 
     <!-- Bootstrap core CSS -->
-    <link href="http://{{request.META.HTTP_HOST}}/static/css/bootstrap.css" rel="stylesheet">
+    <link href="{{base_path}}/static/css/bootstrap.css" rel="stylesheet">
 
     <!-- Custom styles for this template -->
-    <link href="http://{{request.META.HTTP_HOST}}/static/css/jumbotron.css" rel="stylesheet">
+    <link href="{{base_path}}/static/css/jumbotron.css" rel="stylesheet">
 
     <!--[if lt IE 9]><script src="../../docs-assets/js/ie8-responsive-file-warning.js"></script><![endif]-->
 
@@ -45,6 +45,11 @@
         </div>
         <div class="navbar-header pull-right">
             {% if not prompt_for_parameters %}
+                {% if subscriptions %}
+                    <a class="navbar-brand" id="subscribe" href="javascript:void(0)"><i class="glyphicon glyphicon-envelope"></i> Subscriptions[{{subscriptions|length}}]</a>
+                {% else %}
+                    <a class="navbar-brand" id="subscribe" href="javascript:void(0)"><i class="glyphicon glyphicon-envelope"></i> Subscribe</a>
+                {% endif %}
                 <a class="navbar-brand" href="{{csv_url}}"><i class="glyphicon glyphicon-download-alt"></i> Excel</a>
                 <a class="navbar-brand" href="{{pdf_url}}"><i class="glyphicon glyphicon-download-alt"></i> PDF</a>
             {% endif %}
@@ -59,6 +64,19 @@
         <h1>{{report.title}}</h1>
 
         <p class="lead">{{report.byline}}</p>
+
+        {% if report.html_instructions %}
+            <div class="row">
+                <div class="col-md-7">
+                    <div class="panel panel-default">
+                        <div id="html_instructions" class="panel-body">
+                            <small>{{report.html_instructions | safe}}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
         <p><small><em>Created by <i class="glyphicon glyphicon-user"></i> {{report.created_by}} in {{report.created_datetime|date:"Y"}};
         {% if report.created_datetime != report.updated_datetime %} Last Updated by  <i class="glyphicon glyphicon-user"></i> {{report.last_updated_by}} on {{report.updated_datetime}}
         {% endif %}
@@ -68,6 +86,69 @@
     </div>
 
     <div class="container">
+
+    {% comment %} Form for updating subscriptions. Starts out hidden, JS will display it.{% endcomment %}
+    {% if subscription_formset and not prompt_for_parameters %}
+        <div class="modal fade" id="subscription_form" style="display:none">
+          <div class="modal-dialog">
+            <div class="modal-content">
+             <form class="form-horizontal" method="POST" action="">
+                {{subscription_formset.management_form}}
+                {% csrf_token %}
+              <div class="modal-header">
+                <h4 class="modal-title"><strong>Subscriptions</strong></h4>
+                <h5 class="modal-title">Schedule PDF snapshots of this report to be emailed to you</h5>
+                {% if request.user.is_staff %}
+                    <h6 class="modal-title"><a href="/admin/mr_reports/subscription/">(Create and edit subscriptions for other users here)</a></h6>
+                {% endif %}
+              </div>
+              <div class="modal-body">
+                {% for sform in subscription_formset %}
+
+                        <fieldset class="form-inline" style="margin-bottom:40px;">
+                            <legend><small>
+                            <i class="glyphicon glyphicon-calendar"></i> {% if sform.instance.pk %}Saved Schedule: {{sform.instance}} {% else %}Create New Schedule (optional){%endif%}
+                            </small>
+                            </legend>
+                            {% if sform.non_field_errors %}<div class="error alert alert-danger">{{sform.non_field_errors}}</div>{% endif %}
+
+                            {% for field in sform.hidden_fields %}
+                                {{ field }}
+                            {% endfor %}
+                            {% for field in sform.visible_fields %}
+                                {% if field.errors %}
+                                    <div class="control-group error alert alert-danger">
+                                        <label class="control-label">{{ field.label }}</label> 
+                                        <div class="controls">{{ field }}
+                                            <span class="help-inline">
+                                                {% for error in  field.errors %}{{ error }}{% endfor %}
+                                            </span>
+                                        </div>
+                                    </div>
+                                {% else %}
+                                        <label class="control-label">{{ field.label }}
+                                            {% if field.help_text %}<i data-toggle="tooltip" title="{{ field.help_text }}" class="glyphicon glyphicon-question-sign"></i>
+                                            {% endif %}
+                                        </label> 
+                                        {{ field }}
+                                {% endif %}
+                            {% endfor %}
+                        </fieldset>
+
+                {% endfor %}
+              </div>
+              <div class="modal-footer">
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" >Save Changes</button>
+                </div>
+
+              </div>
+               </form>
+            </div><!-- /.modal-content -->
+          </div><!-- /.modal-dialog -->
+        </div><!-- /.modal -->    
+      {% endif %}
 
       {% if prompt_for_parameters %}
 
@@ -133,8 +214,9 @@
             {% for dataset,data,columns in datasets %}
               <div class="row">
                 <div class="col-md-12">
+                    {% if dataset.label %}<h3><span class="label label-default">{{dataset.label}}</span></h3>{% endif %}
                     <div class="table-responsive">
-                    <table id="{{dataset.name_for_id}}" class="table table-striped table-bordered">
+                    <table id="{{dataset.name_for_id}}" class="table table-striped table-bordered data_table">
                         <thead>
                             <tr>
                                 {% for column in columns %}
@@ -175,19 +257,55 @@
     ================================================== -->
     <!-- Placed at the end of the document so the pages load faster -->
 
-    <script src="http://{{request.META.HTTP_HOST}}/static/js/jquery-1.11.0.min.js"></script>
-    <script src="http://{{request.META.HTTP_HOST}}/static/js/bootstrap.min.js"></script>
+    <script src="{{base_path}}/static/js/jquery-1.11.0.min.js"></script>
+    <script src="{{base_path}}/static/js/bootstrap.min.js"></script>
     <script src="http://code.jquery.com/ui/1.10.4/jquery-ui.js"></script>
 
     <script>
         $('#parameters').modal({'backdrop':'static','keyboard':false});
+
+        {% if show_subscription_form %}
+            $('#subscription_form').modal();
+        {% endif %}
+
         $(function() {
-            $( "input.date" ).datepicker();
+            $( "input.date" ).datepicker({ dateFormat: "yy-mm-dd" });
             //For datetime fields, find the first input in each group since the 
             //second is the time
             $('div.controls').each(function(idx, value) {
-                $(value).find('input.datetime:first').datepicker();
+                $(value).find('input.datetime:first').datepicker({ dateFormat: "yy-mm-dd" });
             })
+
+            //When subscribe is clicked show subscription form as modal
+            $( "a#subscribe" ).click(function() {
+                $('#subscription_form').modal();
+            });
+
+            //set up tool tips
+            $('i.glyphicon-question-sign').tooltip();
+
+            //Set extra blank subscribe/schedule form's report parameters to the current parameters
+            //Django doesn't seem to support it within the form :-(
+            function jDecode(str) {
+                return $("<div/>").html(str).text();
+            }
+            {% if subscribe_parameters %}
+                //Give user option to use current report parameters on a new schedule
+                $('div#subscription_form input:eq(-2)').after(' <a id="ins_cur_parm" href="javascript:void(0)">Use Current Parameters</a>');
+                $('a#ins_cur_parm').click(function() {
+                    $('div#subscription_form input:eq(-2)').val(jDecode('{{subscribe_parameters}}'));
+                });
+
+                {% if ParameterForm.contains_no_required_fields %}
+                    $('div#subscription_form input:eq(-2)').attr("placeholder", "Leave blank for defaults")  
+                {% endif %}
+
+            {% endif %}
+
+            //We don't need a delete checkbox on the extra form 
+            $('div#subscription_form label:last').hide();
+            $('div#subscription_form input:last').hide();
+
         });
     </script>
 

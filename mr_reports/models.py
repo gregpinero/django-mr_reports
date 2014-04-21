@@ -1,12 +1,17 @@
 
 """
 TODO:
-Package and deploy to github,
+
+Ability to refresh report and get re-prompted for parameters
 Allow datasets for parameters ...?
-Have way to generate report PDF's for emailing, need special logon? maybe just allow scheduling?
+Ability to log out for normal users
+Categories
 advanced permissions
-pagination?
-requested form order isn't always being respeced, investigate
+pagination, sorting
+Better handling of parameters for subscriptions, they're error prone and not
+    user friendly.  I think I could include and validate each parameter within
+    a subscription form.  See http://stackoverflow.com/questions/4727732/django-add-field-to-model-formset
+Show sql and connection info for each table for debugging
 
 South:
 (mr_reports)[pinerog@pinero-ws reports]$ python manage.py schemamigration mr_reports --auto
@@ -20,9 +25,11 @@ import ast
 from django.db import models
 from django.contrib.auth.models import Group, User
 from django.utils.safestring import mark_safe
+from django.utils.html import escape
 from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.core.urlresolvers import reverse
+from django.utils import timezone
 
 from encrypted_fields import EncryptedCharField
 import sqlalchemy
@@ -61,7 +68,7 @@ class DataConnection(AuditableTable):
     password = EncryptedCharField(passphrase_setting='SECRET_KEY', max_length=300,
         help_text="WARNING: Assume this is not safe! It is encrypted using unvetted code I "
         "found on the internet.  It will be encrypted when stored in " 
-        "the database BUT the password is stored on your sever. "
+        "the database BUT the key is stored on your sever. "
         " It will also be available to any users using the admin interface and "
         "is sent to the DB server and to admin users in clear text.", blank=True)
     host = models.CharField(max_length=300, help_text="The name of the host", blank=True)
@@ -82,7 +89,7 @@ class DataConnection(AuditableTable):
     def __unicode__(self):
         return "%s@%s/%s (%s)" % (self.username, self.host, self.database, self.drivername)
 
-def totwotuple(tupl):
+def totwotuple(tupl): #convenience function
     return tuple([tuple([item]*2) for item in tupl])
 class Parameter(AuditableTable):
     """Specify optional parameters that a given report can ask for"""
@@ -123,6 +130,9 @@ class Parameter(AuditableTable):
         # Don't allow whitespace, special characters in parameter names
         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', self.name):
             raise ValidationError("Name must start with a letter or '_', and can only contain letters, '_'s or numbers.")
+        # Don't allow setting required=True when providing a default value, that would confuse things ...
+        if self.python_create_default and self.required:
+            raise ValidationError("A parameter with a default value cannot be set to required.")            
 
     def edit_link(self):
         return mark_safe("<a href='/admin/mr_reports/parameter/%s/'>Edit</a>" % self.id)
@@ -133,6 +143,7 @@ class Parameter(AuditableTable):
 class DataSet(AuditableTable):
     """A query to pull data"""
     name = models.CharField(max_length=50)
+    label = models.CharField(help_text="Optional label to appear above data set on report", blank=True,max_length=200)
     connection = models.ForeignKey(DataConnection)
     query = models.TextField(help_text="A SQL query to run. If using parameters, use parameter names "
         "after ':'. Here's an example with a parameter named 'pawnum': select earsize from dogs where numpaws=:pawnum")
@@ -148,12 +159,10 @@ class DataSet(AuditableTable):
             result = conn.execute(query, **submitted_parameters.cleaned_data)
         else:
             result = conn.execute(query)
-        columns = [item[0] for item in result.cursor.description]
-        if self.connection.dialect.lower() == 'oursql':
-            #Sql alchemy / oursql is throwing an error for result.fetchall() so pull one by one?
-            data = [list(result.fetchone()) for i in range(result.rowcount)]
-        else:
-            data = result.fetchall()
+
+        columns = [item[0] for item in result.cursor.description]        
+        data = result.fetchall()
+
         #Python post processing on data (if any)
         if self.python_post_processing and getattr(settings,'MR_REPORTS_ALLOW_NATIVE_PYTHON_CODE_EXEC_ON_SERVER',False):
             context = {'data':data}
@@ -198,6 +207,8 @@ class Report(AuditableTable):
     """This is an actual report, made up for one or more datasets."""
     title = models.CharField(max_length=200)
     byline = models.CharField(max_length=300, blank=True)
+    html_instructions = models.TextField("Instructions (HTML)", blank=True,
+        help_text=escape("Any special instructions or details about reading or using this report. Use <br/> for line breaks, and <a> tags for links."))
     datasets = models.ManyToManyField(DataSet, help_text="These datasets will be "
         "displayed as tables on the report.", through='ReportDataSet')
     style = models.ForeignKey(Style, blank=True, null=True,
@@ -216,10 +227,25 @@ class Report(AuditableTable):
     #Files such as images that will be available for JS code to optionally use (coming soon!)
     #files_available = ...
 
+    def update_submitted_parameters_w_defaults(self, submitted_parameters):
+        """If a user submits a form leaving a field with a default value blank, we want 
+        to fill it in with a default value.
+        (since the parameter form on the report is built dynamically it's better to do this here.)
+        """
+        if submitted_parameters:
+            for pname, value in submitted_parameters.cleaned_data.items():
+                p = Parameter.objects.get(name=pname)
+                if not value and p.python_create_default:
+                    submitted_parameters.cleaned_data[pname] = p.create_default()
+        return submitted_parameters
+
     def get_all_data(self, submitted_parameters=None):
+        submitted_parameters = self.update_submitted_parameters_w_defaults(submitted_parameters)
+
         #Run queries to get datasets
         datasets = []
-        for dataset in self.datasets.all():
+        for reportdataset in self.reportdataset_set.all().order_by('order_on_report'):
+            dataset = reportdataset.dataset
             data, columns = dataset.run_query(submitted_parameters)
             columns = [col.replace('_',' ').title() for col in columns]
             datasets.append((dataset,data,columns))
@@ -248,5 +274,67 @@ class ReportDataSet(models.Model):
     order_on_report = models.IntegerField(default=0, help_text="Enter a number greater than or equal to 0 to specify "
         "which order this dataset should be displayed on the report. Lower numbers come first")
 
+class Subscription(models.Model):
+    """Controls who gets emailed which reports when."""
+    class Meta:
+        ordering = ['-last_scheduled_run','pk']
+    send_to = models.ForeignKey(User)
+    report = models.ForeignKey(Report)
+    #Note: This handling of report_parameters needs to be overhauled if subscriptions are popular. 
+    #it's not user friendly and is error prone.
+    report_parameters = models.CharField(max_length=1000, blank=True,
+        help_text="This should be the query string of the URL of a succussfullly running report. " \
+        "Example: as_of_date=2014-03-21&test_parameter1=on. Leave this field blank to use default report parameters.")
+    time = models.TimeField(help_text="Report will be sent as close to this time of day as possible. Example input: 6:00")
+    start_date = models.DateField(help_text="This is the date the first report will be sent. "
+        "For monthly and yearly subscriptions, they will re-occur on this day. (Daiy and Weekly will be sent every 24 hours or 7 days respectively "
+        "from the start_date and time.)")
+    frequency = models.CharField(max_length=20,
+      choices=totwotuple(('Daily','Weekly','Monthly','Yearly')), default='Monthly')
+    email_subject = models.CharField(max_length=200, blank=True)
+    email_body_extra = models.TextField(blank=True)
+    last_scheduled_run = models.DateTimeField(null=True, editable=False)
+    last_run_succeeded = models.BooleanField(default=False, editable=False)
 
+    def should_send(self, today=None):
+        """Determines whether this schedule should fire at the current time
+
+        (today defaults to current day, but you can set different dates for testing.)
+        """
+        if today:
+            tt = timezone.make_aware(today, timezone.get_default_timezone())
+        else:
+            tt = timezone.localtime(timezone.now())
+        t = tt.date()
+
+        last_run = self.last_scheduled_run or datetime.datetime.min.replace(tzinfo=timezone.utc)
+        time_since_last_run = tt - last_run
+
+        seconds_since_last_run = time_since_last_run.seconds + (time_since_last_run.days * 24 * 3600)
+
+        hours_since_last_run = seconds_since_last_run / 3600.0
+        days_since_last_run = seconds_since_last_run / (3600.0 * 24)
+
+        if tt.time() >= self.time and t >= self.start_date:
+
+            if self.frequency == 'Daily' and hours_since_last_run >= 24:
+                return True
+            elif self.frequency == 'Weekly' and days_since_last_run >= 7:
+                return True
+            elif (self.frequency == 'Monthly') and ((self.start_date.day == t.day) or (days_since_last_run > 31)):
+                return True
+            elif (self.frequency == 'Yearly') and ((t.month == self.start_date.month and t.day == self.start_date.day) \
+                or (days_since_last_run >= 366)):
+                return True
+
+        return False
+
+    def clean(self):
+        # I didn't have a clever way to handle monthly/yearly schedules when starting
+        # in short months so we won't allow days above the shortest month 
+        if self.start_date and self.start_date.day > 28:
+            raise ValidationError("Please choose a start date on or before the 28th of a given month.")
+
+    def __unicode__(self):
+        return "Send %s to %s %s" % (self.report, self.send_to, self.frequency)
 

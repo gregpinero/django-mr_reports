@@ -36,7 +36,7 @@
           {% if request.user.is_authenticated %}
               {% if request.user.is_staff %}<a class="navbar-brand" href="/admin">Create and Improve Reports</a>{% endif %}
           {% else %}
-                <a class="navbar-brand" href="/admin">Log in</a>
+                <a class="navbar-brand" href="/accounts/login/">Log in</a>
           {% endif %}
         </div>
 

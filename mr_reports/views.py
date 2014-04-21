@@ -6,13 +6,17 @@ import subprocess
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.template import RequestContext, loader
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django import forms
+from django.forms import ModelForm
+from django.forms.models import modelformset_factory
 from django.forms.forms import Form
 import django.forms.fields
 from django.conf import settings
+import django.core.exceptions
 
-from models import Report, Parameter, DataSet
+from models import Report, Parameter, DataSet, ReportDataSet, DataSetParameter, \
+    Subscription
 
 
 def index(request):
@@ -31,16 +35,24 @@ def build_parameter_form(report):
     """Dynamically build a form class to handle the report's parameters"""
     all_parameters = []
     for dataset in report.datasets.all():
+        #Find 'order_on_report' value for this dataset/report
+        order_on_report = ReportDataSet.objects.get(report=report, dataset=dataset).order_on_report
         for p in dataset.parameters.all():
-            all_parameters.append(p)
-    
+            #find 'order_on_form' value for this parameter and dataset
+            order_on_form = DataSetParameter.objects.get(dataset=dataset, parameter=p).order_on_form            
+            all_parameters.append((p,(order_on_report, order_on_form)))
+    all_parameters = sorted(all_parameters, key=lambda x: (x[1][0],x[1][1]))
+    #remove sorting fields
+    all_parameters = [v[0] for v in all_parameters]
+
     if all_parameters:
         #remove duplicates whilst preserving order
         unique_parameters = []
         [unique_parameters.append(item) for item in all_parameters if item not in unique_parameters]
-        
-        #TODO: requested form order isn't always being respected, investigate
 
+
+
+        #build the form
         class ParameterForm(Form):
             def __init__(self, *args, **kwargs):
                 super(ParameterForm, self).__init__(*args, **kwargs)
@@ -58,6 +70,7 @@ def build_parameter_form(report):
                     default = p.create_default()
                     if default:
                         kwargs2['initial'] = default
+                        #use default if a field with a default was left blank (useful for subscriptions)
                     #Specify special widgets
                     if p.data_type.lower() == 'datefield':
                         kwargs2['widget'] = forms.DateInput(attrs={'class':'date'}) #SelectDateWidget
@@ -68,9 +81,22 @@ def build_parameter_form(report):
                     self.fields[p.name] = getattr(django.forms.fields,p.data_type)(**kwargs2)
                     #preserse order of parameters in form display (possibly unnecessary)
                     self.fields[p.name].creation_counter = i
+        #check if any fields are required
+        ParameterForm.contains_no_required_fields = not any([p.required for p in unique_parameters])
         return ParameterForm
     else:
         return None
+
+SubscriptionFormSet = modelformset_factory(Subscription, fields = (
+        'start_date','time','frequency','report_parameters'),
+        extra=1, can_delete=True,
+        widgets={
+            'start_date': forms.DateInput(attrs={'class':'date', 'style':"width:7em"}), #SelectDateWidget
+            'time': forms.TimeInput(attrs={'class':'time', 'style':"width:7em", 'placeholder':'6:00'}),
+            #Note: This handling of report_parameters needs to be overhauled if subscriptions are popular. 
+            #it's not user friendly and is error prone.
+            'report_parameters': forms.TextInput(attrs={'style':"width:14em"}),
+        })
 
 def data_to_csv(response, datasets):
     w=csv.writer(response,dialect='excel')
@@ -82,20 +108,48 @@ def data_to_csv(response, datasets):
         w.writerows(data)
     return response
 
-@login_required
-def report(request, report_id, format=''):
-    """Render a given report, or ask for parameters if needed"""
+def output_pdf(request, context_from_view, report):
+    """Return a PDF version of report.  This is really required to be run from the 
+    render_report function since it depends on all of its context.
+
+    Requires server to be running at settings.BASE_PATH in order to server static files.
+    """
+    if not getattr(settings, 'MR_REPORTS_WKHTMLTOPDF_PATH','') and getattr(settings, 'BASE_PATH',''):
+        return HttpResponse("PDF generation not available. Please add and set 'MR_REPORTS_WKHTMLTOPDF_PATH', and 'BASE_PATH' in your settings.py file.")
+    #Render normal page HTML, and feed it to WKHTMLTOPDF
+    command = [getattr(settings, 'MR_REPORTS_WKHTMLTOPDF_PATH')]
+    command += getattr(settings, 'MR_REPORTS_WKHTMLTOPDF_OPTIONS',[])
+    command += ['--page-size', report.pdf_paper_size, '--orientation', report.pdf_orientation]
+    command += ["-","-"] #"-" to tell WKHTMLTOPDF to use pipes for input and output
+    #print ' '.join(command)
+    wkhtml2pdf = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    template = loader.get_template('mr_reports/report.html')
+    html = template.render(context_from_view).encode('utf8')
+    wkdata = wkhtml2pdf.communicate(html)
+    pdf = wkdata[0];
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = 'attachment; filename=%s.pdf' % report.filename()
+    response.write(pdf)
+    return response
+
+def render_report(request, report_id, format=''):
+    """Render a given report, or ask for parameters if needed
+
+    A utils.execute_subscription also runs this function using a mock request object
+    so don't always expect request to contain things like user, etc.
+    """
     report = get_object_or_404(Report, pk=report_id)
+
+    subscriptions, subscription_formset, subscribe_parameters, show_subscription_form = [], None, '', False
 
     today = datetime.datetime.today()
 
     curr_url = request.get_full_path()
-
+    base_path = ''
     datasets = []
 
     #If form exists, and is not bound, or is not valid, prompt for parameters
     #otherwise render report
-    
     ParameterForm = build_parameter_form(report)
     prompt_for_parameters = False
     if ParameterForm:
@@ -105,8 +159,12 @@ def report(request, report_id, format=''):
                 #render report
                 datasets = report.get_all_data(parameter_form)
                 #Include links to PDF and CSV versions of report
-                csv_url = ''.join([curr_url.split('?')[0],'csv/?',curr_url.split('?')[1]])
-                pdf_url = ''.join([curr_url.split('?')[0],'pdf/?',curr_url.split('?')[1]])
+                if '?' in curr_url:
+                    csv_url = ''.join([curr_url.split('?')[0],'csv/?',curr_url.split('?')[1]])
+                    pdf_url = ''.join([curr_url.split('?')[0],'pdf/?',curr_url.split('?')[1]])
+                    subscribe_parameters = curr_url.split('?')[1]
+                else:
+                    csv_url, pdf_url = '','' #when running as a scheduled email we won't have curr_url
             else:
                 prompt_for_parameters = True
         else:
@@ -120,6 +178,28 @@ def report(request, report_id, format=''):
         csv_url = curr_url + 'csv/'
         pdf_url = curr_url + 'pdf/'
 
+    #pull subscriptions if any, handle saving
+    if getattr(request,'user',False):
+        if request.POST:
+            subscription_formset = SubscriptionFormSet(request.POST)
+            if subscription_formset.is_valid():
+                #add in non displayed fields: send_to and report
+                instances = subscription_formset.save(commit=False)
+                for instance in instances:
+                    instance.send_to = request.user
+                    instance.report = report
+                    instance.save()
+                return HttpResponseRedirect(curr_url)
+            else:
+                #print subscription_formset.forms[-1].changed_data
+                #Show subscription form when loading page to highlight errors
+                show_subscription_form = True
+        else:
+            #Note, Django 1.6 won't allow an initial/default value for time :-( lest it thinks an 
+            #unchanged extra form has been changed.
+            subscriptions = Subscription.objects.filter(send_to=request.user, report=report)
+            subscription_formset = SubscriptionFormSet(queryset=subscriptions,
+                initial=[{'frequency':'Monthly'}])
     #Footer:
     footer_html = getattr(settings,'MR_REPORTS_FOOTER_HTML',
         "<p><em>Generated by <a href=''>Mr. Reports</a>.</em></p>")
@@ -133,26 +213,15 @@ def report(request, report_id, format=''):
         return response
     elif format=='pdf':
         assert datasets and not prompt_for_parameters
-        #Hit this same url with HTML-to-PDF tool and return PDF
-        if not getattr(settings, 'MR_REPORTS_WKHTMLTOPDF_PATH',''):
-            return HttpResponse("PDF generation not available. Please add and set 'MR_REPORTS_WKHTMLTOPDF_PATH' in your settings.py file.")
-        #Render normal page HTML, and feed it 
-        command = [getattr(settings, 'MR_REPORTS_WKHTMLTOPDF_PATH')]
-        command += getattr(settings, 'MR_REPORTS_WKHTMLTOPDF_OPTIONS',[])
-        command += ['--page-size', report.pdf_paper_size, '--orientation', report.pdf_orientation]
-        command += ["-","-"] #"-" to tell WKHTMLTOPDF to use pipes for input and output
-        #print ' '.join(command)
-        wkhtml2pdf = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-        template = loader.get_template('mr_reports/report.html')
+        base_path = settings.BASE_PATH.rstrip('/')
         context = RequestContext(request, locals())
-        html = template.render(context).encode('utf8')
-        wkdata = wkhtml2pdf.communicate(html)
-        pdf = wkdata[0];
-        response = HttpResponse(content_type='application/pdf')
-        response['Content-Disposition'] = 'attachment; filename=%s.pdf' % report.filename()
-        response.write(pdf)
-        return response
+        return output_pdf(request, context, report)
     else:
         #normal page render
         return render(request, 'mr_reports/report.html', locals())
+
+@login_required
+def report(request, report_id, format=''):
+    """Render a report for the web"""
+    return render_report(request, report_id, format)
 
